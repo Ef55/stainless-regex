@@ -1,0 +1,11 @@
+# Stainless cache directory
+.stainless-cache
+
+# Stainless log file
+last.log
+
+# Inox solver debug output
+tip-sessions
+
+# Inox smt debug folder
+smt-sessions
