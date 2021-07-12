@@ -47,7 +47,6 @@ object Regex {
   case class Sequence(_1: Regex, _2: Regex) extends Regex
   //case class KleeneStar(e: Regex) extends Regex
 
-
   // Lemmas
   def emptyDerivesToEmpty(@induct str: List[Character]): Unit = {
   }.ensuring(_ => Empty.derive(str) == Empty)
@@ -102,9 +101,8 @@ object Regex {
     ).qed
   }.ensuring(_ => Disjunction(e, Empty).accepts(str) == e.accepts(str))
 
-  def nilAccepterIsNullable(e: Regex): Unit = {
-    require(e.accepts(Nil()))
-  }.ensuring(_ => e.nullable)
+  def nullableCorrectness(e: Regex): Unit = {
+  }.ensuring(_ => e.accepts(Nil()) == e.nullable)
 
   def derivationChain(e: Regex, str1: List[Character], str2: List[Character]): Boolean = {
     decreases(str1.length + str2.length)
@@ -145,19 +143,7 @@ object Regex {
     e.derive(h).derive(t ++ str2) == e.derive(str1 ++ str2)
   }.holds
 
-  // Core properties
-  def emptyAccepts(@induct str: List[Character]): Unit = {
-    require(Empty.accepts(str))
-  }.ensuring(_ => false)
-
-  def epsilonAccepts(@induct str: List[Character]): Unit = {
-    require(Epsilon.accepts(str))
-  }.ensuring(_ => str.isEmpty)
-
-  def epsilonRejects(str: List[Character]): Unit = {
-    require(!Epsilon.accepts(str))
-  }.ensuring(_ => !str.isEmpty)
-
+  // Correctness subproofs
   def literalAccepts(e: Literal, str: List[Character]): Unit = {
     require(e.accepts(str))
 
@@ -174,10 +160,6 @@ object Regex {
     }
 
   }.ensuring(_ => str == Cons(e.char, Nil()))
-
-  def literalRejects(e: Literal, str: List[Character]): Unit = {
-    require(!e.accepts(str))
-  }.ensuring(_ => str != Cons(e.char, Nil()))
 
   def disjunctionAccepts(e: Disjunction, str: List[Character]): Unit = {
     require(e.accepts(str))
@@ -246,8 +228,8 @@ object Regex {
             e.accepts(str1 ++ str2)           ==:| trivial |:
             e.accepts(Nil())                  ==:| trivial |:
             e.nullable                        ==:| trivial |:
-            (e1.nullable && e2.nullable)      ==:| nilAccepterIsNullable(e1) |:
-            (true && e2.nullable)             ==:| nilAccepterIsNullable(e2) |:
+            (e1.nullable && e2.nullable)      ==:| nullableCorrectness(e1) |:
+            (true && e2.nullable)             ==:| nullableCorrectness(e2) |:
             (true && true)
           ).qed
         }
@@ -258,7 +240,7 @@ object Regex {
             e.derive(str1 ++ str2).nullable                                                     ==:| derivationChain(e, str1, str2) |:
             e.derive(str1).derive(str2).nullable                                                ==:| trivial |:
             e.derive(str2).nullable                                                             ==:| trivial |:
-            e.derive(h).derive(t).nullable                                                      ==:| nilAccepterIsNullable(e1) |:
+            e.derive(h).derive(t).nullable                                                      ==:| nullableCorrectness(e1) |:
             d.derive(t).nullable                                                                ==:| disjunctionDerivesToDisjunctionOfDerivatives(d, t) |:
             Disjunction(Sequence(e1.derive(h), e2).derive(t), e2.derive(h).derive(t)).nullable  ==:| trivial |:
             Disjunction(Sequence(e1.derive(h), e2).derive(t), e2.derive(str2)).nullable         ==:| trivial |:
@@ -305,6 +287,25 @@ object Regex {
     require(false)
   }.ensuring(_ => !Sequence(e1, e2).accepts(str))
 
+  // Correctness
+
+  def emptyCorrectness(@induct str: List[Character]): Unit = {
+  }.ensuring(_ => Empty.accepts(str) == false)
+
+  def epsilonCorrectness(@induct str: List[Character]): Unit = {
+  }.ensuring(_ => Epsilon.accepts(str) == str.isEmpty)
+
+  def literalCorrectness(c: Character, str: List[Character]): Unit = {
+    val e = Literal(c)
+    if(e.accepts(str)) literalAccepts(e, str)
+    else ()
+  }.ensuring(_ => Literal(c).accepts(str) == (str == Cons(c, Nil())))
+
+  def disjunctionCorrectness(e1: Regex, e2: Regex, str: List[Character]): Unit = {
+    val e = Disjunction(e1, e2)
+    if(e.accepts(str)) disjunctionAccepts(e, str)
+    else disjunctionRejects(e, str)
+  }.ensuring(_ => Disjunction(e1, e2).accepts(str) == (e1.accepts(str) || e2.accepts(str)))
 
   // Additional properties
   def disjunctionSymmetry(e1: Regex, e2: Regex, str: List[Character]): Unit = {
