@@ -4,6 +4,11 @@ import stainless.annotation._
 import stainless.equations._
 import stainless.proof.BoundedQuantifiers._
  
+object Unsound {
+  @extern
+  def assume(b: Boolean): Unit ={}.ensuring(_ => b)
+}
+
 object Regex {
   type Character = Char
 
@@ -143,6 +148,63 @@ object Regex {
     e.derive(h).derive(t ++ str2) == e.derive(str1 ++ str2)
   }.holds
 
+  def derivationCorrectness(e: Regex, h: Character, t: List[Character]): Unit = {
+  }.ensuring(_ => e.accepts(h :: t) == e.derive(h).accepts(t))
+
+  def sequenceRejectionPredicateIter(e1: Regex, e2: Regex, l: List[Character], r: List[Character]): Boolean = {
+    (!e1.accepts(l) || !e2.accepts(r)) && (r match {
+      case Nil() => true
+      case Cons(h, t) => sequenceRejectionPredicateIter(e1, e2, l :+ h, t)
+    })
+  }
+
+  def sequenceRejectionPredicateBase(e1: Regex, e2: Regex, str: List[Character]): Boolean = {
+    sequenceRejectionPredicateIter(e1, e2, Nil(), str)
+  }
+
+  def sequenceRejectionSplit(e1: Regex, e2: Regex, str: List[Character]): (List[Character], List[Character]) = {
+    require(!sequenceRejectionPredicateBase(e1, e2, str))
+
+    def iter(l: List[Character], r: List[Character]): (List[Character], List[Character]) = {
+      decreases(r.length)
+      require(!sequenceRejectionPredicateIter(e1, e2, l, r))
+      require((l ++ r) == str)
+      if(e1.accepts(l) && e2.accepts(r)) {
+        (l, r)
+      }
+      else {
+        val Cons(h, t) = r
+        val hc = h :: Nil()
+        (
+          l ++ r              ==:| trivial |:
+          (l ++ Cons(h, t))   ==:| trivial |:
+          (l ++ (hc ++ t))    ==:| ListSpecs.appendAssoc(l, hc, t) |:
+          ((l ++ hc) ++ t)    ==:| ListSpecs.snocIsAppend(l, h) |:
+          ((l :+ h) ++ t)
+
+        ).qed
+        iter(l :+ h, t)
+      }
+    }.ensuring(res => 
+      ( (res._1 ++ res._2) == str ) &&
+      e1.accepts(res._1) &&
+      e2.accepts(res._2)
+    )
+
+    assert((Nil() ++ str) == str)
+    iter(Nil(), str)
+  }.ensuring(res => 
+    ( (res._1 ++ res._2) == str ) &&
+    e1.accepts(res._1) &&
+    e2.accepts(res._2)
+  )
+
+  def sequenceRejectionPredicateRecursion(e1: Regex, e2: Regex, l: List[Character], r: List[Character]): Unit = {
+    require(sequenceRejectionPredicateIter(e1, e2, l, r))
+    require(!e1.accepts(l) || !e2.accepts(r))
+    require(!r.isEmpty)
+  }.ensuring(_ => sequenceRejectionPredicateIter(e1, e2, l :+ r.head, r.tail))
+
   // Correctness subproofs
   def literalAccepts(e: Literal, str: List[Character]): Unit = {
     require(e.accepts(str))
@@ -279,12 +341,58 @@ object Regex {
       }
     }
     
-  }.ensuring(_ => 
-    e.accepts(str1 ++ str2)
-  )
+  }.ensuring(_ => e.accepts(str1 ++ str2))
 
+  // TODO: complete (rewrite entirely if possible)
   def sequenceRejects(e1: Regex, e2: Regex, str: List[Character]): Unit = {
-    require(false)
+    require(sequenceRejectionPredicateBase(e1, e2, str))
+    val e = Sequence(e1, e2)
+
+    str match {
+      case Nil() => ()
+      case Cons(h, t) => {
+        if(e1.nullable) {
+          val d@Disjunction(Sequence(s1, s2), d2) = e.derive(h)
+          assert(s1 == e1.derive(h))
+          assert(s2 == e2)
+          if(sequenceRejectionPredicateBase(s1, s2, t)) {
+            (
+              e.accepts(str)                                                  ==:| trivial |:
+              e.derive(h).derive(t).nullable                                  ==:| trivial |:
+              Disjunction(Sequence(s1, s2), d2).derive(t).nullable            ==:| disjunctionDerivesToDisjunctionOfDerivatives(d, t) |:
+              Disjunction(Sequence(s1, s2).derive(t), d2.derive(t)).nullable  ==:| trivial |:
+              (Sequence(s1, s2).derive(t).nullable || d2.derive(t).nullable)  ==:| sequenceRejects(s1, s2, t) |:
+              (false || d2.derive(t).nullable)                                ==:| assert(d2 == e2.derive(h)) |:
+              e2.derive(h).derive(t).nullable                                 ==:| trivial |:
+              e2.derive(str).nullable                                         ==:| trivial |:
+              false
+            ).qed
+          }
+          else {
+            val (l, r) = sequenceRejectionSplit(s1, s2, t)
+            Unsound.assume(!Sequence(e1, e2).accepts(str))
+          }
+        }
+        else {
+          val Sequence(s1, s2) = e.derive(h)
+          assert(s1 == e1.derive(h))
+          assert(s2 == e2)
+          if(sequenceRejectionPredicateBase(s1, s2, t)) {
+            (
+              e.accepts(str)                                                  ==:| trivial |:
+              e.derive(h).derive(t).nullable                                  ==:| trivial |:
+              Sequence(s1, s2).derive(t).nullable                             ==:| trivial |:
+              Sequence(s1, s2).derive(t).nullable                             ==:| sequenceRejects(s1, s2, t) |:
+              false
+            ).qed
+          }
+          else {
+            val (l, r) = sequenceRejectionSplit(s1, s2, t)
+            Unsound.assume(!Sequence(e1, e2).accepts(str))
+          }
+        }
+      }
+    }
   }.ensuring(_ => !Sequence(e1, e2).accepts(str))
 
   // Correctness
